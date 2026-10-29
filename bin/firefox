@@ -31,10 +31,10 @@ if [ -f "$PROFILE_DIR/xulstore.json" ]; then
 fi
 
 cat << 'EOF' > "$PROFILE_DIR/user.js"
-// Enable mobile responsive viewport parsing (<meta name="viewport" content="width=device-width">)
-user_pref("dom.meta-viewport.enabled", true);
+// Disable meta-viewport: on desktop Linux Firefox it locks content viewport and breaks rotation/hit-testing
+user_pref("dom.meta-viewport.enabled", false);
 
-// Use native HiDPI rendering via Wayland scale (prevents blurry / pixelated UI)
+// Use native HiDPI rendering via Wayland scale (scale 2 = 540 CSS px in portrait, crisp and sharp)
 user_pref("layout.css.devPixelsPerPx", "-1.0");
 
 // Enable compact UI mode
@@ -44,15 +44,35 @@ user_pref("browser.uidensity", 1);
 // Enable userChrome.css for responsive mobile UI
 user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
 
-// Touch & scrolling responsiveness
-user_pref("general.smoothScroll", true);
-user_pref("apz.allow_zooming", true);
-user_pref("apz.allow_double_tap_zooming", true);
-user_pref("apz.one_touch_pinch.enabled", true);
-user_pref("apz.zoom-to-focused-input.enabled", true);
-user_pref("browser.gesture.pinch.in", "cmd_fullZoomReduce");
-user_pref("browser.gesture.pinch.out", "cmd_fullZoomEnlarge");
-user_pref("browser.gesture.pinch.latched", false);
+// Fast, snappy touch scrolling without CPU animation backlog (vital for software WebRender under PRoot)
+user_pref("general.smoothScroll", false);
+user_pref("general.smoothScroll.lines", false);
+user_pref("general.smoothScroll.pages", false);
+user_pref("general.smoothScroll.scrollbars", false);
+user_pref("general.smoothScroll.pixels", false);
+user_pref("general.smoothScroll.mouseWheel", false);
+
+// Disable axis locking: allows vertical, horizontal, and diagonal swipes without getting stuck
+user_pref("apz.axis_lock.mode", 0);
+
+// Auto-direct scroll deltas to the scrollable container (handles free diagonal/horizontal/vertical swipes)
+user_pref("mousewheel.autodir.enabled", true);
+user_pref("mousewheel.autodir.honourroot", true);
+
+// Finger swipe sensitivity & speed (feels like native mobile touch)
+user_pref("mousewheel.min_line_scroll_amount", 5);
+user_pref("mousewheel.default.delta_multiplier_y", 120);
+user_pref("mousewheel.default.delta_multiplier_x", 120);
+
+// Drag responsiveness & prevent script stalls
+user_pref("apz.drag.enabled", true);
+user_pref("apz.drag.touch.enabled", true);
+user_pref("apz.content_response_timeout", 100);
+
+// Disable experimental desktop zoom layers to keep visual viewport perfectly synced with window geometry on rotate
+user_pref("apz.allow_zooming", false);
+user_pref("apz.allow_double_tap_zooming", false);
+user_pref("apz.one_touch_pinch.enabled", false);
 
 // Video & Audio playback: Use RDD process with system FFmpeg and FFVPX codecs
 user_pref("media.ffmpeg.enabled", true);
@@ -162,4 +182,4 @@ EOF
 
 chmod 755 /usr/local/bin/firefox
 
-exec /usr/bin/firefox --profile "$PROFILE_DIR" "$@"
+exec /usr/bin/firefox --profile "$PROFILE_DIR" "$@" >> /tmp/firefox_runtime.log 2>&1
