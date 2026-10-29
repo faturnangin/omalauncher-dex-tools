@@ -1,0 +1,6 @@
+#!/bin/sh
+export QT_QPA_PLATFORM=wayland
+export QT_WAYLAND_FORCE_DPI=96
+export QT_FONT_DPI="${QT_FONT_DPI:-115}"
+export LD_PRELOAD="/usr/local/lib/libheidisql-fix.so${LD_PRELOAD:+:$LD_PRELOAD}"
+exec /usr/bin/heidisql "$@"

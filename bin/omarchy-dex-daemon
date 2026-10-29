@@ -1,0 +1,310 @@
+#!/usr/bin/env python3
+import concurrent.futures
+import os
+import re
+import socket
+import subprocess
+import threading
+import time
+
+PIDFILE = "/run/user/0/omarchy-dex-daemon.pid"
+LOGFILE = "/run/user/0/omarchy-dex-daemon.log"
+
+
+def log(msg):
+    try:
+        with open(LOGFILE, "a") as f:
+            f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
+    except Exception:
+        pass
+
+
+def get_local_ips():
+    ips = []
+    try:
+        out = subprocess.check_output(["ip", "-4", "-o", "addr", "show"], text=True)
+        for line in out.splitlines():
+            m = re.search(r"inet\s+(\d+\.\d+\.\d+\.\d+)/", line)
+            if m and not m.group(1).startswith("127."):
+                ips.append(m.group(1))
+    except Exception:
+        pass
+    return ips
+
+
+def get_active_serial():
+    subprocess.run(["adb", "start-server"], capture_output=True)
+    try:
+        out = subprocess.check_output(["adb", "devices"], text=True, timeout=4)
+        devs = []
+        for line in out.splitlines()[1:]:
+            parts = line.split()
+            if len(parts) >= 2 and parts[1] == "device":
+                devs.append(parts[0])
+        if devs:
+            mdns = [d for d in devs if "_adb-tls-connect" in d]
+            chosen = mdns[0] if mdns else devs[0]
+            for d in devs:
+                if d != chosen and ":" in d:
+                    subprocess.run(["adb", "disconnect", d], capture_output=True, timeout=2)
+            return chosen
+    except Exception:
+        pass
+
+    for ip in get_local_ips():
+        def check_port(p):
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(0.12)
+            try:
+                if s.connect_ex((ip, p)) == 0:
+                    return p
+            except Exception:
+                pass
+            finally:
+                s.close()
+            return None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=200) as ex:
+            open_ports = [p for p in ex.map(check_port, range(30000, 50000)) if p is not None]
+
+        for p in open_ports:
+            try:
+                target = f"{ip}:{p}"
+                c = subprocess.run(["adb", "connect", target], capture_output=True, text=True, timeout=3)
+                if "connected to" in c.stdout:
+                    return target
+            except Exception:
+                pass
+    return None
+
+
+def apply_permissions(ser):
+    cmds = [
+        "appops set dev.omalauncher SYSTEM_ALERT_WINDOW allow",
+        "appops set dev.omalauncher START_FOREGROUND allow",
+        "cmd activity set-bg-restriction-level --user 0 dev.omalauncher unrestricted",
+        "device_config put activity_manager default_background_activity_starts_enabled true",
+        "settings put global force_resizable_activities 1",
+        "settings put global enable_freeform_support 1",
+        "settings put global enable_non_resizable_multi_window 1",
+    ]
+    subprocess.run(["adb", "-s", ser, "shell", "; ".join(cmds)], capture_output=True, timeout=8)
+
+
+def query_dex_state(ser):
+    """Returns (dex_display_id, dex_desk_id, dextop_task_id, oma_d0_tasks)."""
+    try:
+        out = subprocess.check_output(
+            ["adb", "-s", ser, "shell", "cmd", "activity", "stack", "list"],
+            text=True,
+            timeout=4,
+        )
+    except Exception:
+        return None, None, None, []
+
+    dex_display = None
+    dex_desk = None
+    dextop_task = None
+    oma_d0_tasks = []
+
+    cur_root = None
+    cur_display = 0
+
+    for line in out.splitlines():
+        m_root = re.match(r"^RootTask id=(\d+)\s+.*displayId=(\d+)", line)
+        if m_root:
+            cur_root = int(m_root.group(1))
+            cur_display = int(m_root.group(2))
+            if cur_display > 0 and dex_display is None:
+                dex_display = cur_display
+            continue
+
+        if cur_display > 0 and line.startswith(" configuration={") and "mWindowingMode=freeform" in line:
+            if dex_desk is None:
+                dex_desk = cur_root
+            continue
+
+        m_task = re.match(r"^\s+taskId=(\d+):\s+(\S+)", line)
+        if m_task:
+            tid = int(m_task.group(1))
+            comp = m_task.group(2)
+            if cur_display == 0:
+                if comp.startswith("moe.n4tsu.dextop/"):
+                    dextop_task = tid
+                elif (
+                    comp.startswith("dev.omalauncher/")
+                    and not comp.endswith(".MainActivity")
+                    and not comp.endswith(".PinShortcutActivity")
+                    and "visible=true" in line
+                ):
+                    oma_d0_tasks.append(tid)
+
+    return dex_display, dex_desk, dextop_task, oma_d0_tasks
+
+
+def is_oma_window_component(comp):
+    if not comp.startswith("dev.omalauncher/"):
+        return False
+    if comp.endswith(".MainActivity") or comp.endswith(".PinShortcutActivity"):
+        return False
+    return True
+
+
+def run_event_loop(ser):
+    subprocess.run(["adb", "-s", ser, "logcat", "-c"], capture_output=True)
+
+    shell_proc = subprocess.Popen(
+        ["adb", "-s", ser, "shell"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        bufsize=1,
+    )
+    shell_lock = threading.Lock()
+
+    def send_shell(cmd_str):
+        with shell_lock:
+            try:
+                shell_proc.stdin.write(cmd_str + "\n")
+                shell_proc.stdin.flush()
+            except Exception:
+                pass
+
+    dex_display, dex_desk, dextop_task, oma_d0 = query_dex_state(ser)
+    log(f"Initial state on {ser}: dex_display={dex_display}, dex_desk={dex_desk}, dextop_task={dextop_task}")
+
+    task_display = {}
+
+    def do_move_task(tid):
+        nonlocal dex_display, dex_desk, dextop_task
+        if dex_display is None:
+            dex_display, dex_desk, dextop_task, _ = query_dex_state(ser)
+        if dex_display is None:
+            return
+        if task_display.get(tid, 0) == dex_display:
+            return
+
+        cmds = [f"cmd activity task resizeable {tid} 2"]
+        if dex_desk is not None:
+            cmds.append(f"wm shell desktopmode moveTaskToDesk {tid} {dex_desk}")
+            cmds.append(f"cmd activity stack move-task {tid} {dex_desk} true")
+        else:
+            cmds.append(f"wm shell desktopmode moveToNextDisplay {tid}")
+            cmds.append(f"cmd activity display move-stack {tid} {dex_display}")
+
+        if dextop_task is not None:
+            cmds.append(f"cmd activity stack move-task {dextop_task} {dextop_task} true")
+
+        send_shell("; ".join(cmds))
+        log(f"Moved task {tid} -> display={dex_display} desk={dex_desk} (dextop={dextop_task})")
+
+    def schedule_move_task(tid):
+        do_move_task(tid)
+        threading.Timer(0.12, do_move_task, args=(tid,)).start()
+        threading.Timer(0.35, do_move_task, args=(tid,)).start()
+
+    if dex_display is not None:
+        for tid in oma_d0:
+            schedule_move_task(tid)
+
+    log_proc = subprocess.Popen(
+        ["adb", "-s", ser, "shell", "logcat -b events -v brief -T 1"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    freeform_candidates = set()
+
+    try:
+        for line in log_proc.stdout:
+            # Track windowing mode changes: wm_task_windowing_mode_changed: [11715,0,5]
+            if "wm_task_windowing_mode_changed" in line:
+                m = re.search(r"\[(\d+),\d+,5\]", line)
+                if m:
+                    freeform_candidates.add(int(m.group(1)))
+
+            # Track task creation: wm_create_task: [0,11719,11715,25]
+            elif "wm_create_task" in line:
+                m = re.search(r"\[\d+,(\d+),(\d+),(\d+)\]", line)
+                if m:
+                    tid, rtid, did = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                    task_display[tid] = did
+                    if did > 0:
+                        dex_display = did
+                        if tid != rtid and rtid in freeform_candidates:
+                            dex_desk = rtid
+
+            # Track task movement: wm_task_moved: [11715,11715,25,1,4]
+            elif "wm_task_moved" in line:
+                m = re.search(r"\[(\d+),(\d+),(\d+),(\d+),", line)
+                if m:
+                    tid, rtid, did, focused = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+                    task_display[tid] = did
+                    if did > 0:
+                        dex_display = did
+                        if tid == rtid and tid in freeform_candidates and (focused == 1 or dex_desk is None):
+                            dex_desk = tid
+                        elif tid != rtid and rtid in freeform_candidates:
+                            dex_desk = rtid
+
+            # Track DeX exit
+            elif "wm_shell_exit_desktop_mode" in line or (
+                "wm_destroy_activity" in line and "SecondaryLauncher" in line
+            ):
+                dex_display, dex_desk, dextop_task, _ = query_dex_state(ser)
+                log(f"DeX exit event -> dex_display={dex_display}, dex_desk={dex_desk}")
+
+            # Track DeX entry
+            elif "wm_shell_enter_desktop_mode" in line or (
+                "SecondaryLauncher" in line and ("wm_create_activity" in line or "wm_set_resumed_activity" in line)
+            ):
+                dex_display, dex_desk, dextop_task, _ = query_dex_state(ser)
+                log(f"DeX enter event -> dex_display={dex_display}, dex_desk={dex_desk}, dextop={dextop_task}")
+
+            # Track Activity creation / restart / resume / new_intent:
+            # e.g. wm_create_activity: [0,30431509,11728,dev.omalauncher/.LinuxWindowActivity,...]
+            if any(
+                k in line
+                for k in (
+                    "wm_create_activity",
+                    "wm_restart_activity",
+                    "wm_resume_activity",
+                    "wm_new_intent",
+                )
+            ):
+                m = re.search(r"\[\d+,\d+,(\d+),([^,\]]+)", line)
+                if m:
+                    tid = int(m.group(1))
+                    comp = m.group(2)
+                    if comp.startswith("moe.n4tsu.dextop/"):
+                        dextop_task = tid
+                    elif is_oma_window_component(comp):
+                        if task_display.get(tid, 0) == 0:
+                            schedule_move_task(tid)
+    finally:
+        log_proc.kill()
+        shell_proc.kill()
+
+
+def main():
+    os.makedirs("/run/user/0", exist_ok=True)
+    with open(PIDFILE, "w") as f:
+        f.write(str(os.getpid()))
+
+    log("omarchy-dex-daemon starting")
+    while True:
+        ser = get_active_serial()
+        if ser:
+            try:
+                apply_permissions(ser)
+                run_event_loop(ser)
+            except Exception as e:
+                log(f"Error in loop: {e}")
+        time.sleep(2)
+
+
+if __name__ == "__main__":
+    main()
