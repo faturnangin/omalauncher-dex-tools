@@ -5,36 +5,41 @@ export XDG_CURRENT_DESKTOP=sway
 export LD_PRELOAD="/usr/local/lib/libfirefox-fix.so${LD_PRELOAD:+:$LD_PRELOAD}"
 
 PROFILE_DIR="/root/.config/firefox-omarchy"
-mkdir -p "$PROFILE_DIR"
+mkdir -p "$PROFILE_DIR/chrome"
 
-# Check if Samsung DeX secondary display is currently active
-IS_DEX=0
-if grep -q "DeX enter event -> dex_display=[0-9]" /run/user/0/omarchy-dex-daemon.log 2>/dev/null; then
-    LAST_ENTER=$(grep "DeX enter event -> dex_display=[0-9]" /run/user/0/omarchy-dex-daemon.log | tail -n 1)
-    LAST_EXIT=$(grep "DeX exit event" /run/user/0/omarchy-dex-daemon.log | tail -n 1)
-    if [ -n "$LAST_ENTER" ]; then
-        IS_DEX=1
-    fi
+# Clean up any stale or corrupted xulstore geometry that forces fixed dimensions
+if [ -f "$PROFILE_DIR/xulstore.json" ]; then
+    rm -f "$PROFILE_DIR/xulstore.json"
 fi
 
-if [ "$IS_DEX" -eq 1 ]; then
-    PIXEL_SCALE="1.0"
-    DENSITY="0"
-else
-    # On phone screen (1080px portrait / scale 3 = 360 logical px), scale down UI so toolbars fit
-    PIXEL_SCALE="0.72"
-    DENSITY="1" # compact mode
-fi
+cat << 'EOF' > "$PROFILE_DIR/user.js"
+// Use native HiDPI rendering via Wayland scale (prevents blurry / pixelated UI)
+user_pref("layout.css.devPixelsPerPx", "-1.0");
 
-cat << EOF > "$PROFILE_DIR/user.js"
-user_pref("layout.css.devPixelsPerPx", "$PIXEL_SCALE");
+// Enable compact UI mode
 user_pref("browser.compactmode.show", true);
-user_pref("browser.uidensity", $DENSITY);
+user_pref("browser.uidensity", 1);
+
+// Enable userChrome.css for responsive mobile UI
+user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
+
+// Full touch support via GTK wl_touch
 user_pref("dom.w3c_touch_events.enabled", 1);
 user_pref("apz.gtk.touchscreen_gestures.enabled", true);
+user_pref("apz.drag.touch.enabled", true);
+user_pref("apz.touch_start_tolerance", "0.05");
+user_pref("ui.click_hold_context_menus", true);
+
+// Smooth touch gestures & pinch zoom
+user_pref("browser.gesture.pinch.in", "cmd_fullZoomReduce");
+user_pref("browser.gesture.pinch.out", "cmd_fullZoomEnlarge");
+user_pref("browser.gesture.pinch.latched", false);
+
+// Software WebRender (smooth & stable under proot)
 user_pref("gfx.webrender.software", true);
 user_pref("layers.acceleration.disabled", true);
 user_pref("browser.shell.checkDefaultBrowser", false);
+user_pref("browser.tabs.warnOnClose", false);
 EOF
 
 exec /usr/bin/firefox --profile "$PROFILE_DIR" "$@"
