@@ -10,7 +10,7 @@
 typedef int (*add_listener_fn)(struct wl_proxy *proxy, void (**implementation)(void), void *data);
 
 static void (*g_real_configure)(void *, void *, int32_t, int32_t, struct wl_array *) = NULL;
-static void *g_hooked_listener[8];
+static void *g_hooked_listener[4];
 
 static void toplevel_configure_wrapper(void *data, void *xdg_toplevel, int32_t width, int32_t height, struct wl_array *states) {
     bool has_maximized = false;
@@ -53,8 +53,10 @@ int wl_proxy_add_listener(struct wl_proxy *proxy, void (**implementation)(void),
     if (cls && strcmp(cls, "xdg_toplevel") == 0 && implementation) {
         void **funcs = (void **)implementation;
         g_real_configure = (void (*)(void *, void *, int32_t, int32_t, struct wl_array *))funcs[0];
-        memcpy(g_hooked_listener, funcs, sizeof(g_hooked_listener));
         g_hooked_listener[0] = (void *)toplevel_configure_wrapper;
+        g_hooked_listener[1] = funcs[1];
+        g_hooked_listener[2] = funcs[2];
+        g_hooked_listener[3] = funcs[3];
         return real_fn(proxy, (void (**)(void))g_hooked_listener, data);
     }
     return real_fn(proxy, implementation, data);

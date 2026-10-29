@@ -15,6 +15,9 @@ export LD_PRELOAD="/usr/local/lib/libfirefox-fix.so${LD_PRELOAD:+:$LD_PRELOAD}"
 PROFILE_DIR="/root/.config/firefox-omarchy"
 mkdir -p "$PROFILE_DIR/chrome"
 
+# Always clean up stale lock files so dead sessions never block launching
+rm -f "$PROFILE_DIR/.parentlock" "$PROFILE_DIR/lock"
+
 # Clean up any stale or corrupted xulstore geometry that forces fixed dimensions
 if [ -f "$PROFILE_DIR/xulstore.json" ]; then
     rm -f "$PROFILE_DIR/xulstore.json"
