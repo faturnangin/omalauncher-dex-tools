@@ -11,6 +11,9 @@ install -Dm755 bin/firefox /usr/local/bin/firefox
 mkdir -p /root/.config/firefox-omarchy/chrome
 cp etc/firefox/userChrome.css /root/.config/firefox-omarchy/chrome/userChrome.css
 
+echo "/usr/lib/firefox" > /etc/ld.so.conf.d/firefox.conf
+ldconfig
+
 if [ -f /usr/share/applications/heidisql.desktop ]; then
     sed -i 's|^Exec=.*|Exec=/usr/local/bin/heidisql %F|' /usr/share/applications/heidisql.desktop
 fi

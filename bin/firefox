@@ -6,12 +6,16 @@ export XDG_CURRENT_DESKTOP=sway
 # Audio server for PulseAudio backend
 export PULSE_SERVER="unix:/run/user/0/pulse/native"
 
+# Add Firefox library directory to library search path for internal codec libraries
+export LD_LIBRARY_PATH="/usr/lib/firefox${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
 # PRoot compatibility: Disable shared memory seals and namespace sandboxing
 # which cause SIGSEGV crashes under PRoot ptrace environment
 export MOZ_SHM_NO_SEALS=1
 export MOZ_DISABLE_CONTENT_SANDBOX=1
 export MOZ_DISABLE_GMP_SANDBOX=1
 export MOZ_DISABLE_RDD_SANDBOX=1
+export MOZ_DISABLE_UTILITY_SANDBOX=1
 
 export LD_PRELOAD="/usr/local/lib/libfirefox-fix.so${LD_PRELOAD:+:$LD_PRELOAD}"
 
@@ -50,10 +54,16 @@ user_pref("browser.gesture.pinch.in", "cmd_fullZoomReduce");
 user_pref("browser.gesture.pinch.out", "cmd_fullZoomEnlarge");
 user_pref("browser.gesture.pinch.latched", false);
 
-// Video playback: Use RDD process with system FFmpeg (required on Linux ARM64 for H264, VP9, AV1, Opus)
+// Video & Audio playback: Use RDD process with system FFmpeg and FFVPX codecs
 user_pref("media.ffmpeg.enabled", true);
 user_pref("media.rdd-process.enabled", true);
 user_pref("media.rdd-ffmpeg.enabled", true);
+user_pref("media.rdd-ffvpx.enabled", true);
+user_pref("media.rdd-vpx.enabled", true);
+user_pref("media.rdd-opus.enabled", true);
+user_pref("media.rdd-vorbis.enabled", true);
+user_pref("media.rdd-wav.enabled", true);
+user_pref("media.opus.enabled", true);
 user_pref("media.ffmpeg.vaapi.enabled", false);
 
 // Audio playback via PulseAudio
@@ -63,8 +73,10 @@ user_pref("media.cubeb.backend", "pulse");
 user_pref("media.mediasource.enabled", true);
 user_pref("media.mediasource.webm.enabled", true);
 user_pref("media.mediasource.vp9.enabled", true);
-user_pref("media.av1.enabled", true);
+user_pref("media.mediasource.mp4.enabled", true);
+user_pref("media.av1.enabled", false);
 user_pref("media.webm.enabled", true);
+user_pref("media.mp4.enabled", true);
 
 // Allow media to play smoothly without autoplay blocks
 user_pref("media.autoplay.default", 0);
