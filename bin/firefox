@@ -2,6 +2,14 @@
 export MOZ_ENABLE_WAYLAND=1
 export GDK_BACKEND=wayland
 export XDG_CURRENT_DESKTOP=sway
+
+# PRoot compatibility: Disable shared memory seals and namespace sandboxing
+# which cause SIGSEGV crashes under PRoot ptrace environment
+export MOZ_SHM_NO_SEALS=1
+export MOZ_DISABLE_CONTENT_SANDBOX=1
+export MOZ_DISABLE_GMP_SANDBOX=1
+export MOZ_DISABLE_RDD_SANDBOX=1
+
 export LD_PRELOAD="/usr/local/lib/libfirefox-fix.so${LD_PRELOAD:+:$LD_PRELOAD}"
 
 PROFILE_DIR="/root/.config/firefox-omarchy"
