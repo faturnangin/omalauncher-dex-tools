@@ -3,7 +3,7 @@ export MOZ_ENABLE_WAYLAND=1
 export GDK_BACKEND=wayland
 export XDG_CURRENT_DESKTOP=sway
 
-# Audio server for pulse audio backend
+# Audio server for PulseAudio backend
 export PULSE_SERVER="unix:/run/user/0/pulse/native"
 
 # PRoot compatibility: Disable shared memory seals and namespace sandboxing
@@ -50,24 +50,23 @@ user_pref("browser.gesture.pinch.in", "cmd_fullZoomReduce");
 user_pref("browser.gesture.pinch.out", "cmd_fullZoomEnlarge");
 user_pref("browser.gesture.pinch.latched", false);
 
-// In-process media decoding for PRoot stability (fixes YouTube playback)
-// Remote Data Decoder (RDD) process IPC shared memory fails under PRoot;
-// disabling RDD runs FFmpeg directly in the content process reliably.
-user_pref("media.rdd-process.enabled", false);
-user_pref("media.rdd-ffmpeg.enabled", false);
+// Video playback: Use RDD process with system FFmpeg (required on Linux ARM64 for H264, VP9, AV1, Opus)
+user_pref("media.ffmpeg.enabled", true);
+user_pref("media.rdd-process.enabled", true);
+user_pref("media.rdd-ffmpeg.enabled", true);
 user_pref("media.ffmpeg.vaapi.enabled", false);
-user_pref("media.cubeb.backend", "pulse");
-user_pref("media.cubeb.pulse.latency_frames", 512);
 
-// Enable HTML5 Media Source Extensions (MSE) & Codecs used by YouTube
+// Audio playback via PulseAudio
+user_pref("media.cubeb.backend", "pulse");
+
+// HTML5 Media Source Extensions (MSE) enabled for YouTube
 user_pref("media.mediasource.enabled", true);
 user_pref("media.mediasource.webm.enabled", true);
 user_pref("media.mediasource.vp9.enabled", true);
 user_pref("media.av1.enabled", true);
 user_pref("media.webm.enabled", true);
-user_pref("media.navigator.mediadatadecoder_vpx_enabled", true);
 
-// Allow media playback without restrictive autoplay blocks
+// Allow media to play smoothly without autoplay blocks
 user_pref("media.autoplay.default", 0);
 user_pref("media.autoplay.blocking_policy", 0);
 
@@ -128,10 +127,18 @@ cat << 'EOF' > "$PROFILE_DIR/chrome/userChrome.css"
   display: none !important;
 }
 
-/* Hide the security sandbox warning banner */
-notification[value="sandbox-content-disabled"],
-notification[data-notification-id="sandbox-content-disabled"] {
+/* Completely hide the security sandbox warning banner and notification boxes */
+#global-notificationbox,
+notification-message,
+notification,
+.notificationbox-stack {
   display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
 }
 
 .devtools-toolbox-browsing-context,
