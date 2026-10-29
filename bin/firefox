@@ -25,9 +25,7 @@ fi
 
 cat << 'EOF' > "$PROFILE_DIR/user.js"
 // Enable mobile responsive viewport parsing (<meta name="viewport" content="width=device-width">)
-// Without this, desktop Firefox renders all responsive sites in 980px desktop mode
 user_pref("dom.meta-viewport.enabled", true);
-user_pref("browser.viewport.desktopWidth", 540);
 
 // Use native HiDPI rendering via Wayland scale (prevents blurry / pixelated UI)
 user_pref("layout.css.devPixelsPerPx", "-1.0");
@@ -39,14 +37,8 @@ user_pref("browser.uidensity", 1);
 // Enable userChrome.css for responsive mobile UI
 user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
 
-// Full touch support via GTK wl_touch
-user_pref("dom.w3c_touch_events.enabled", 1);
-user_pref("apz.gtk.touchscreen_gestures.enabled", true);
-user_pref("apz.drag.touch.enabled", true);
-user_pref("apz.touch_start_tolerance", "0.05");
-user_pref("ui.click_hold_context_menus", true);
-
-// Smooth mobile touch gestures, pinch-to-zoom, and double-tap zoom
+// Touch & scrolling responsiveness
+user_pref("general.smoothScroll", true);
 user_pref("apz.allow_zooming", true);
 user_pref("apz.allow_double_tap_zooming", true);
 user_pref("apz.one_touch_pinch.enabled", true);
@@ -61,5 +53,64 @@ user_pref("layers.acceleration.disabled", true);
 user_pref("browser.shell.checkDefaultBrowser", false);
 user_pref("browser.tabs.warnOnClose", false);
 EOF
+
+cat << 'EOF' > "$PROFILE_DIR/chrome/userChrome.css"
+/* Omalauncher Responsive Mobile userChrome for Firefox */
+
+:root {
+  --tab-min-height: 36px !important;
+  --urlbar-min-height: 34px !important;
+  --tab-min-width: 40px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+}
+
+#main-window,
+#browser,
+#appcontent {
+  min-width: 0 !important;
+  min-height: 0 !important;
+}
+
+#navigator-toolbox {
+  min-width: 0 !important;
+  max-width: 100vw !important;
+}
+
+#nav-bar {
+  min-width: 0 !important;
+  padding-inline: 4px !important;
+}
+
+#urlbar-container {
+  min-width: 80px !important;
+}
+
+#urlbar {
+  min-width: 80px !important;
+}
+
+#TabsToolbar {
+  min-width: 0 !important;
+}
+
+.tabbrowser-tab {
+  min-width: 40px !important;
+  padding-inline: 6px !important;
+}
+
+#alltabs-button,
+#tracking-protection-icon-container {
+  display: none !important;
+}
+
+.devtools-toolbox-browsing-context,
+.devtools-responsive-wrapper {
+  min-width: 0 !important;
+  min-height: 0 !important;
+}
+EOF
+
+chmod 755 /usr/local/bin/firefox
 
 exec /usr/bin/firefox --profile "$PROFILE_DIR" "$@"

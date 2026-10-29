@@ -10,6 +10,7 @@
 #define WL_SEAT_CAPABILITY_TOUCH 4
 #define WL_SURFACE_ATTACH 1
 #define WL_SURFACE_SET_BUFFER_SCALE 8
+#define MAX_SEATS 8
 
 typedef int (*add_listener_fn)(struct wl_proxy *proxy, void (**implementation)(void), void *data);
 typedef struct wl_proxy *(*marshal_array_flags_fn)(struct wl_proxy *proxy, uint32_t opcode,
@@ -22,15 +23,15 @@ static marshal_array_flags_fn g_real_marshal_array_flags = NULL;
 
 static int32_t g_output_scale = 2;
 
-/* Per-seat hook instance to avoid static array corruption and multiple-connection collisions */
-struct seat_hook_data {
-    void (*real_capabilities)(void *data, struct wl_seat *seat, uint32_t caps);
-    void *real_data;
-    void *wrapped_impl[2];
-};
+/* Per-proxy seat lookup to preserve caller's private data pointer across all callbacks */
+static struct {
+    struct wl_proxy *proxy;
+    void (*real_capabilities)(void *, struct wl_seat *, uint32_t);
+    void (*real_name)(void *, struct wl_seat *, const char *);
+} g_seats[MAX_SEATS];
+static int g_seat_count = 0;
 
 static void seat_capabilities_wrapper(void *data, struct wl_seat *seat, uint32_t caps) {
-    struct seat_hook_data *hook = (struct seat_hook_data *)data;
     /* Mask out WL_SEAT_CAPABILITY_TOUCH (0x4).
      * This makes GTK and Firefox see Pointer (mouse) + Keyboard, activating
      * Omalauncher's responsive touch-to-pointer mapper:
@@ -39,10 +40,31 @@ static void seat_capabilities_wrapper(void *data, struct wl_seat *seat, uint32_t
      * - Drag = Smooth scrolling
      */
     caps &= ~WL_SEAT_CAPABILITY_TOUCH;
-    if (hook && hook->real_capabilities) {
-        hook->real_capabilities(hook->real_data, seat, caps);
+    for (int i = 0; i < g_seat_count; i++) {
+        if (g_seats[i].proxy == (struct wl_proxy *)seat) {
+            if (g_seats[i].real_capabilities) {
+                g_seats[i].real_capabilities(data, seat, caps);
+            }
+            return;
+        }
     }
 }
+
+static void seat_name_wrapper(void *data, struct wl_seat *seat, const char *name) {
+    for (int i = 0; i < g_seat_count; i++) {
+        if (g_seats[i].proxy == (struct wl_proxy *)seat) {
+            if (g_seats[i].real_name) {
+                g_seats[i].real_name(data, seat, name);
+            }
+            return;
+        }
+    }
+}
+
+static struct wl_seat_listener g_hooked_seat_impl = {
+    .capabilities = seat_capabilities_wrapper,
+    .name = seat_name_wrapper
+};
 
 int wl_proxy_add_listener(struct wl_proxy *proxy, void (**implementation)(void), void *data) {
     if (!g_real_add_listener) {
@@ -52,16 +74,15 @@ int wl_proxy_add_listener(struct wl_proxy *proxy, void (**implementation)(void),
     const char *cls = proxy ? wl_proxy_get_class(proxy) : NULL;
     if (cls && implementation) {
         if (strcmp(cls, "wl_seat") == 0) {
-            /* Allocate dynamic wrapper per seat object to prevent memory corruption across threads/connections */
-            struct seat_hook_data *hook = (struct seat_hook_data *)malloc(sizeof(struct seat_hook_data));
-            if (hook) {
-                void **funcs = (void **)implementation;
-                hook->real_capabilities = (void (*)(void *, struct wl_seat *, uint32_t))funcs[0];
-                hook->real_data = data;
-                hook->wrapped_impl[0] = (void *)seat_capabilities_wrapper;
-                hook->wrapped_impl[1] = funcs[1]; /* name callback */
-                return g_real_add_listener(proxy, (void (**)(void))hook->wrapped_impl, hook);
+            void **funcs = (void **)implementation;
+            if (g_seat_count < MAX_SEATS) {
+                g_seats[g_seat_count].proxy = proxy;
+                g_seats[g_seat_count].real_capabilities = (void (*)(void *, struct wl_seat *, uint32_t))funcs[0];
+                g_seats[g_seat_count].real_name = (void (*)(void *, struct wl_seat *, const char *))funcs[1];
+                g_seat_count++;
             }
+            /* Pass original data pointer untouched so funcs receive their expected object */
+            return g_real_add_listener(proxy, (void (**)(void))&g_hooked_seat_impl, data);
         }
     }
     return g_real_add_listener(proxy, implementation, data);
@@ -79,7 +100,7 @@ struct wl_proxy *wl_proxy_marshal_array_flags(struct wl_proxy *proxy, uint32_t o
     if (cls) {
         /* Ensure EVERY wl_surface (including WebRender content subsurface)
          * has set_buffer_scale set before attaching a buffer.
-         * Eliminates 2x stretch, pixelation, and cropping.
+         * Eliminates 2x stretch, pixelation, and cropping in both portrait and landscape.
          */
         if (strcmp(cls, "wl_surface") == 0 && opcode == WL_SURFACE_ATTACH) {
             union wl_argument scale_arg;
