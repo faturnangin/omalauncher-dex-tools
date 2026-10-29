@@ -12,10 +12,10 @@ static const struct app_entry apps[] = {
     {"Terminal", "Foot Wayland terminal", "foot"},
     {"Antigravity CLI", "Coding agent in terminal", "foot --app-id=dev.omalauncher.agy -T Antigravity -e bash -lc 'agy; exec bash'"},
     {"Antigravity IDE", "Full graphical IDE", "antigravity-ide"},
+    {"Firefox", "Desktop browser with DevTools", "/usr/local/bin/firefox"},
     {"HeidiSQL", "SQL database manager", "/usr/local/bin/heidisql"},
     {"btop++", "System resource monitor", "foot --app-id=btop -T btop -e /usr/local/bin/btop"},
     {"Cliamp", "Terminal music player", "foot --app-id=cliamp -T Cliamp -e /usr/local/bin/cliamp"},
-    {"Micro Editor", "Terminal text editor", "foot --app-id=micro -T Editor -e micro"},
     {"Files", "Omarchy File Manager", "/usr/local/bin/omarchy-files"},
 };
 
