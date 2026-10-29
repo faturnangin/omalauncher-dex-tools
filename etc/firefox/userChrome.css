@@ -1,8 +1,4 @@
-/* ==============================================================
-   Omalauncher Mobile / Responsive userChrome for Desktop Firefox
-   ============================================================== */
-
-@namespace url("http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul");
+/* Omalauncher Responsive Mobile userChrome for Firefox (No @namespace for modern XHTML) */
 
 :root {
   --tab-min-height: 32px !important;

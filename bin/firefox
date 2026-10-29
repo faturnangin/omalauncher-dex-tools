@@ -24,6 +24,11 @@ if [ -f "$PROFILE_DIR/xulstore.json" ]; then
 fi
 
 cat << 'EOF' > "$PROFILE_DIR/user.js"
+// Enable mobile responsive viewport parsing (<meta name="viewport" content="width=device-width">)
+// Without this, desktop Firefox renders all responsive sites in 980px desktop mode
+user_pref("dom.meta-viewport.enabled", true);
+user_pref("browser.viewport.desktopWidth", 540);
+
 // Use native HiDPI rendering via Wayland scale (prevents blurry / pixelated UI)
 user_pref("layout.css.devPixelsPerPx", "-1.0");
 
@@ -41,7 +46,11 @@ user_pref("apz.drag.touch.enabled", true);
 user_pref("apz.touch_start_tolerance", "0.05");
 user_pref("ui.click_hold_context_menus", true);
 
-// Smooth touch gestures & pinch zoom
+// Smooth mobile touch gestures, pinch-to-zoom, and double-tap zoom
+user_pref("apz.allow_zooming", true);
+user_pref("apz.allow_double_tap_zooming", true);
+user_pref("apz.one_touch_pinch.enabled", true);
+user_pref("apz.zoom-to-focused-input.enabled", true);
 user_pref("browser.gesture.pinch.in", "cmd_fullZoomReduce");
 user_pref("browser.gesture.pinch.out", "cmd_fullZoomEnlarge");
 user_pref("browser.gesture.pinch.latched", false);
